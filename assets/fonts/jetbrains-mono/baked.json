@@ -1,0 +1,19 @@
+{
+  "family": "JetBrains Mono Regular",
+  "release": "2.304",
+  "source_url": "https://github.com/JetBrains/JetBrainsMono/blob/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf",
+  "font_sha256": "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
+  "license": "SIL Open Font License 1.1",
+  "pillow_version": "12.1.1",
+  "pixel_size": 28,
+  "cell_width": 18,
+  "cell_height": 38,
+  "baseline": 29,
+  "glyph_range": [
+    32,
+    126
+  ],
+  "coverage_bits": 4,
+  "atlas_bytes": 32490,
+  "atlas_sha256": "075ce3548dbdda73fd855c0672f55ba819cba78997d6775f09c66575552d8585"
+}

@@ -113,8 +113,10 @@ def package(args):
             raise ValueError('Rebuild the display probe with strict-alignment code generation')
         if len(image) >= 0x80000: raise ValueError('Display probe exceeds its staging window')
     else:
-        version, label = {'pre-kernel-boot-menu':('0.3.0',
-            'LINUX_DESKTOP' if (build.get('linux_payload') or {}).get('shares_android_kernel') else 'LINUX_PROBE' if build.get('linux_payload') else 'BOOT_MENU'),
+        version, label = {'pre-kernel-boot-menu':('0.3.1',
+            'LINUX_DESKTOP' if (build.get('linux_payload') or {}).get('shares_android_kernel') else
+            'LINUX_LIVE' if (build.get('linux_payload') or {}).get('upstream_live_profile') else
+            'LINUX_PROBE' if build.get('linux_payload') else 'BOOT_MENU'),
                           'pre-kernel-display-bridge':('0.1.2','DISPLAY_BRIDGE'),
                           'pre-kernel-entry-control':('0.1.1','ENTRY_CONTROL')}[kind]
         if kind in ('pre-kernel-display-bridge','pre-kernel-boot-menu') and not build.get('strict_alignment'):

@@ -77,6 +77,17 @@ int main(int argc,char** argv) {
         Fdt shared_tree{};check(Fdt::open({shared_output.data(),shared_size},shared_tree,error),"shared-kernel DT invalid");
         check(shared_tree.property(text("/reserved-memory/framebuffer"),text("no-map"),p)==no_map,
               "shared-kernel DT changed framebuffer mapping attributes");
+        auto desktop=o;desktop.simple_framebuffer=true;
+        check(build_linux_tree(tree,desktop,shared_output.data(),shared_output.size(),shared_size,error),"simple framebuffer DT failed");
+        check(Fdt::open({shared_output.data(),shared_size},shared_tree,error),"simple framebuffer DT invalid");
+        const auto fb=text("/chosen/framebuffer@ff32b000");
+        check(shared_tree.property(fb,text("compatible"),p) && p.size==19 && !std::memcmp(p.data,"simple-framebuffer",19),"simple framebuffer binding missing");
+        check(shared_tree.property(fb,text("reg"),p) && p.size==16 && big64(p.data)==o.framebuffer &&
+              big64(p.data+8)==uint64_t(o.stride)*o.stored_height*4,"simple framebuffer range wrong");
+        check(shared_tree.property(fb,text("stride"),p) && big32(p.data)==3200,"simple framebuffer pitch wrong");
+        check(shared_tree.property(fb,text("format"),p) && p.size==9 && !std::memcmp(p.data,"x8r8g8b8",9),"simple framebuffer format wrong");
+        size_t duplicate=0;
+        check(!build_linux_tree(shared_tree,desktop,output.data()+1,8192,duplicate,error),"duplicate framebuffer node accepted");
         check(!build_linux_tree(tree,o,output.data()+1,128,bytes,error) && !bytes,"short DT output accepted");
         check(!build_linux_tree(tree,o,input.data(),input.size(),bytes,error) && input==before,"overlapping output accepted");
         auto invalid=o;invalid.initrd_start=0x40000000;

@@ -70,6 +70,8 @@ def build(args):
             'initrd_sha256':hashlib.sha256(initrd).hexdigest(),'initrd_bytes':len(initrd)}
         release=re.search(rb'Linux version (\d+\.\d+\.\d+[^ \x00]{0,90}) ',payload)
         linux_metadata['kernel_release']=release.group(1).decode('ascii') if release else None
+        linux_metadata['upstream_live_profile']=not linux_shared and bool(release and b'-kbl-live' in release.group(1))
+        linux_metadata['simple_framebuffer']=not linux_shared
     output = args.out.resolve(); output.mkdir(parents=True, exist_ok=True)
     suffix = '.exe' if os.name == 'nt' else ''
     llvm = llvm_dir(args.llvm_bin)
@@ -85,6 +87,7 @@ def build(args):
     if reset_fault: common += ['-DKBL_RESET_FAULT_TEST=1']
     if linux_enabled:common += ['-DKBL_LINUX_PAYLOAD=1','-DKBL_LOADER_START='+hex(observer)]
     if linux_shared:common += ['-DKBL_LINUX_SHARED_KERNEL=1']
+    if linux_metadata and linux_metadata['upstream_live_profile']:common += ['-DKBL_LINUX_LIVE=1']
     config = ['-DKBL_PROC_FORMAT_ADDRESS='+hex(base+proc_format),
               '-DKBL_PROC_FORMAT_CAPACITY='+str(proc_capacity)]
     run(common + ['-DKBL_BANNER_ADDRESS=' + hex(base + banner),
@@ -161,7 +164,7 @@ SECTIONS {{
     if unchanged != original or image[banner:banner+14] != b'Linux version ':
         raise ValueError('Original kernel changed outside its entry branch/size')
     (output/'Image').write_bytes(image)
-    manifest = {'product':'KBL', 'version':'0.3.0' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
+    manifest = {'product':'KBL', 'version':'0.3.1' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
         'kind':'pre-kernel-boot-menu' if boot_menu else 'pre-kernel-display-bridge' if display_bridge else 'pre-kernel-entry-control', 'target':'SM-X110-CYE5',
         'qemu_uart_enabled':False, 'link_address':hex(base), 'image_file_bytes':len(image),
         'image_memory_bytes':span, 'image_sha256':hashlib.sha256(image).hexdigest(),

@@ -16,6 +16,7 @@ struct LinuxTree {
     uint64_t framebuffer = 0, framebuffer_bytes = 0;
     uint32_t width = 0, height = 0, stride = 0, stored_height = 0, planes = 0;
     bool framebuffer_no_map = true;
+    bool simple_framebuffer = false;
 };
 // Copy the live DT without modifying it. Replace only Linux-specific chosen
 // properties, add a loader reservation, and optionally mark its framebuffer

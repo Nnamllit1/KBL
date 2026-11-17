@@ -25,6 +25,7 @@ struct Writer {
     void str(Text s) {raw(reinterpret_cast<const uint8_t*>(s.data),s.size);const uint8_t zero=0;raw(&zero,1);pad();}
     void property(uint32_t name,Bytes b) {word(3);word(uint32_t(b.size));word(name);raw(b.data,b.size);pad();}
     void value(uint32_t name,uint64_t n) {word(3);word(8);word(name);wide(n);}
+    void small(uint32_t name,uint32_t n) {word(3);word(4);word(name);word(n);}
 };
 }
 bool plan_linux_image(Bytes image,uint64_t ram_base,uint64_t loader_start,LinuxImage& out,const char*& error) {
@@ -44,6 +45,7 @@ bool build_linux_tree(const Fdt& source,const LinuxTree& o,uint8_t* output,size_
        !range(o.initrd_start,o.initrd_bytes) || !range(o.loader_start,o.loader_bytes) ||
        !range(o.framebuffer,o.framebuffer_bytes) || !o.width || !o.height ||
        o.stride<o.width || o.stored_height<o.height || o.planes<1 || o.planes>3 ||
+       (o.simple_framebuffer && o.stride>UINT32_MAX/4) ||
        uint64_t(o.stride)*o.stored_height>o.framebuffer_bytes/(o.planes*4) ||
        o.initrd_start<o.loader_start || o.initrd_start+o.initrd_bytes>o.loader_start+o.loader_bytes) return false;
     for(size_t i=0;i<o.arguments.size;++i)
@@ -73,9 +75,11 @@ bool build_linux_tree(const Fdt& source,const LinuxTree& o,uint8_t* output,size_
     w.raw(source.reservations.data,source.reservations.size-16);
     w.wide(o.loader_start);w.wide(o.loader_bytes);w.wide(0);w.wide(0);
     const auto structure_start=w.used;
-    const char* names[]={"bootargs","linux,initrd-start","linux,initrd-end","kbl,framebuffer","no-map"};
-    uint32_t offsets[5]{};size_t names_size=source.strings.size;
-    for(unsigned i=0;i<5;++i) {offsets[i]=uint32_t(names_size);names_size+=text(names[i]).size+1;}
+    const char* names[]={"bootargs","linux,initrd-start","linux,initrd-end","kbl,framebuffer","no-map",
+        "compatible","reg","width","height","stride","format","#address-cells","#size-cells","ranges"};
+    constexpr unsigned name_count=sizeof(names)/sizeof(names[0]);
+    uint32_t offsets[name_count]{};size_t names_size=source.strings.size;
+    for(unsigned i=0;i<name_count;++i) {offsets[i]=uint32_t(names_size);names_size+=text(names[i]).size+1;}
     if(names_size>capacity) {error="Linux DT strings exceed capacity";return false;}
     char path[1024]{};size_t lengths[64]{},depth=0,length=0,cursor=0;unsigned chosen=0,fb_nodes=0;
     while(cursor<source.structure.size && w.valid) {
@@ -97,9 +101,25 @@ bool build_linux_tree(const Fdt& source,const LinuxTree& o,uint8_t* output,size_
                 w.value(offsets[1],o.initrd_start);w.value(offsets[2],o.initrd_start+o.initrd_bytes);
                 w.word(3);w.word(36);w.word(offsets[3]);w.wide(o.framebuffer);
                 w.word(o.width);w.word(o.height);w.word(o.stride);w.word(o.stored_height);w.word(o.planes);w.wide(o.framebuffer_bytes);
+                if(o.simple_framebuffer) {w.small(offsets[11],2);w.small(offsets[12],2);w.property(offsets[13],{});}
+            }
+            if(o.simple_framebuffer && begins({path,length},text("/chosen/framebuffer"))) {
+                error="existing chosen framebuffer conflicts with Linux handoff";return false;
             }
             if(equal({path,length},find.path.view())) {++fb_nodes;if(o.framebuffer_no_map)w.property(offsets[4],{});}
         } else if(token==2) {
+            if(o.simple_framebuffer && equal({path,length},text("/chosen"))) {
+                char node[40]="framebuffer@";size_t count=12;bool started=false;
+                for(int shift=60;shift>=0;shift-=4) {
+                    const auto digit=unsigned((o.framebuffer>>shift)&15);
+                    if(digit || started || !shift) {node[count++]="0123456789abcdef"[digit];started=true;}
+                }
+                node[count]=0;w.word(1);w.str({node,count});
+                w.property(offsets[5],{reinterpret_cast<const uint8_t*>("simple-framebuffer"),19});
+                w.word(3);w.word(16);w.word(offsets[6]);w.wide(o.framebuffer);w.wide(uint64_t(o.stride)*o.stored_height*4);
+                w.small(offsets[7],o.width);w.small(offsets[8],o.height);w.small(offsets[9],o.stride*4);
+                w.property(offsets[10],{reinterpret_cast<const uint8_t*>("x8r8g8b8"),9});w.word(2);
+            }
             w.word(2);length=lengths[--depth];path[length]=0;
         } else if(token==3) {
             const auto size=big32(source.structure.data+cursor),index=big32(source.structure.data+cursor+4);
@@ -107,6 +127,8 @@ bool build_linux_tree(const Fdt& source,const LinuxTree& o,uint8_t* output,size_
             Text name=text(reinterpret_cast<const char*>(source.strings.data+index));bool skip=false;
             if(equal({path,length},text("/chosen")))
                 for(unsigned i=0;i<4;++i) if(equal(name,text(names[i]))) skip=true;
+            if(o.simple_framebuffer && equal({path,length},text("/chosen")))
+                for(unsigned i=11;i<14;++i) if(equal(name,text(names[i]))) skip=true;
             if(o.framebuffer_no_map && equal({path,length},find.path.view()) && equal(name,text("no-map"))) skip=true;
             if(!skip) w.raw(source.structure.data+start,cursor-start);
         } else w.word(token);

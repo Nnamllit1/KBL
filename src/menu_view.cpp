@@ -18,7 +18,7 @@ bool build_menu_frame(const Config& config,const Menu& menu,uint64_t now_ms,unsi
        !config.count || config.count>max_entries || menu.selected>=config.count ||
        6+(config.count-1)*2>=rows-13) return false;
     MenuFrame frame{};frame.columns=columns;frame.rows=rows;
-    put(frame,2,0,"KBL 0.3.0");
+    put(frame,2,0,"KBL 0.3.1");
     put(frame,2,1,"Kernel Bootloader",CellStyle::muted);
     const auto bottom=rows-9;
     frame.box={0,4,columns,bottom-4+1};

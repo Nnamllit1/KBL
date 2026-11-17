@@ -94,7 +94,7 @@ bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,c
 #ifdef KBL_LINUX_SHARED_KERNEL
         "rdinit=/init ignore_loglevel loglevel=7 panic=0 selinux=0 firmware_class.path=/vendor/firmware"
 #else
-        "earlycon=kblfb keep_bootcon ignore_loglevel loglevel=7 rdinit=/init maxcpus=1 panic=0"
+        "earlycon=kblfb console=tty0 ignore_loglevel loglevel=7 rdinit=/init maxcpus=1 panic=0 clk_ignore_unused pd_ignore_unused"
 #endif
 #ifdef KBL_MENU_VM_TEST
         " console=ttyAMA0"
@@ -105,6 +105,8 @@ bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,c
         display.width,display.height,display.stride,display.stored_height,display.buffers};
 #ifdef KBL_LINUX_SHARED_KERNEL
     options.framebuffer_no_map=false;
+#else
+    options.simple_framebuffer=true;
 #endif
     size_t tree_bytes=0;
     if(!build_linux_tree(tree,options,linux_dtb_buffer,2*1024*1024,tree_bytes,error)) {context->reason=error;return false;}
@@ -161,6 +163,8 @@ extern "C" void bridge_menu(BridgeContext* context, const kbl::Fdt& tree, const 
     const char* labels[] = {"Android",
 #ifdef KBL_LINUX_SHARED_KERNEL
         "Linux desktop (experimental)",
+#elif defined(KBL_LINUX_LIVE)
+        "Linux live system (upstream)",
 #else
         "Linux boot probe",
 #endif

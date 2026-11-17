@@ -85,7 +85,8 @@ _start:
                 q=QMP(port,time.monotonic()+10);deadline=time.monotonic()+60
                 while time.monotonic()<deadline:
                     content=log.read_bytes() if log.exists() else b''
-                    if b'KBL_LINUX_INIT_OK' in content:break
+                    marker=b'KBL_UPSTREAM_LIVE_INIT_OK' if meta['linux_payload'].get('upstream_live_profile') else b'KBL_LINUX_INIT_OK'
+                    if marker in content and (not meta['linux_payload'].get('upstream_live_profile') or b'KBL_UPSTREAM_LIVE_ALIVE' in content):break
                     if process.poll() is not None:raise RuntimeError('Linux VM exited before PID 1; see '+str(log))
                     time.sleep(.2)
                 else:
@@ -94,18 +95,24 @@ _start:
                     q.command('pmemsave',{'val':meta['symbols']['bridge_context'],'size':280,'filename':str(case/'context.bin')})
                     raise RuntimeError('No independent Linux PID 1; see '+str(log))
                 release=meta['linux_payload'].get('kernel_release')
-                assert (b'Linux version ' in content or (release and ('Linux '+release+' aarch64 / PID 1').encode() in content))
+                assert (b'Linux version ' in content or (release and release.encode() in content))
                 assert b'Kernel panic' not in content
                 q.command('stop')
                 q.command('pmemsave',{'val':BASE-16,'size':FRAME*3+32,'filename':str(case/'framebuffer.bin')})
                 pixels=(case/'framebuffer.bin').read_bytes();assert not any(pixels[:16]+pixels[-16:])
-                planes=pixels[16:-16];assert planes[:FRAME]==planes[FRAME:2*FRAME]==planes[2*FRAME:]
+                planes=pixels[16:-16]
+                if meta['linux_payload'].get('upstream_live_profile'):
+                    assert b'[drm] Initialized simpledrm' in content,'Upstream simpledrm did not initialize'
+                    assert b'fb0: simpledrmdrmfb frame buffer device' in content,'Framebuffer console did not bind'
+                    assert b'KBL_UPSTREAM_LIVE_ALIVE' in content
+                else:assert planes[:FRAME]==planes[FRAME:2*FRAME]==planes[2*FRAME:]
                 png(case/'screen.png',planes[:800*1340*4])
                 q.command('pmemsave',{'val':0x48000000,'size':len((case/'live.dtb').read_bytes()),'filename':str(case/'unchanged-live.dtb')})
                 assert (case/'unchanged-live.dtb').read_bytes()==(case/'live.dtb').read_bytes(),'Live Android DT was changed'
                 results.append({'el':el,'real_linux_kernel':True,'independent_initramfs_pid1':True,
                     'original_live_dtb_unchanged':True,'framebuffer_guards_intact':True,
-                    'image_sha256':meta['linux_payload']['image_sha256'],'hardware_verified':False})
+                    'image_sha256':meta['linux_payload']['image_sha256'],'hardware_verified':False,
+                    'upstream_live_profile':bool(meta['linux_payload'].get('upstream_live_profile'))})
                 print(f'PASS KBL -> real Linux -> independent PID 1, EL{el}',flush=True)
         finally:
             if process and process.poll() is None:

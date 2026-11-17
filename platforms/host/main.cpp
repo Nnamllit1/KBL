@@ -39,7 +39,7 @@ static void json_region(const char* name, kbl::Region r) {
 int main(int argc, char** argv) try {
     if(argc==2 && std::string(argv[1])=="licenses") {std::cout<<kbl::font_license();return 0;}
     if (argc < 3) {
-        std::cerr << "KBL (Kernel Bootloader) 0.3.0\nUsage: kbl inspect BOOT.img\n"
+        std::cerr << "KBL (Kernel Bootloader) 0.3.1\nUsage: kbl inspect BOOT.img\n"
                      "       kbl inspect-json BOOT.img\n"
                      "       kbl check-efi IMAGE.efi\n"
                      "       kbl dtb TREE.dtb\n"

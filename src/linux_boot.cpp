@@ -98,7 +98,7 @@ bool build_linux_tree(const Fdt& source,const LinuxTree& o,uint8_t* output,size_
                 w.word(3);w.word(36);w.word(offsets[3]);w.wide(o.framebuffer);
                 w.word(o.width);w.word(o.height);w.word(o.stride);w.word(o.stored_height);w.word(o.planes);w.wide(o.framebuffer_bytes);
             }
-            if(equal({path,length},find.path.view())) {++fb_nodes;w.property(offsets[4],{});}
+            if(equal({path,length},find.path.view())) {++fb_nodes;if(o.framebuffer_no_map)w.property(offsets[4],{});}
         } else if(token==2) {
             w.word(2);length=lengths[--depth];path[length]=0;
         } else if(token==3) {
@@ -107,7 +107,7 @@ bool build_linux_tree(const Fdt& source,const LinuxTree& o,uint8_t* output,size_
             Text name=text(reinterpret_cast<const char*>(source.strings.data+index));bool skip=false;
             if(equal({path,length},text("/chosen")))
                 for(unsigned i=0;i<4;++i) if(equal(name,text(names[i]))) skip=true;
-            if(equal({path,length},find.path.view()) && equal(name,text("no-map"))) skip=true;
+            if(o.framebuffer_no_map && equal({path,length},find.path.view()) && equal(name,text("no-map"))) skip=true;
             if(!skip) w.raw(source.structure.data+start,cursor-start);
         } else w.word(token);
     }

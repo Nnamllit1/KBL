@@ -71,6 +71,12 @@ int main(int argc,char** argv) {
             return true;
         },&properties,error);
         check(properties==1,"framebuffer no-map absent or duplicated");
+        auto shared=o;shared.framebuffer_no_map=false;
+        std::vector<uint8_t> shared_output(8192);size_t shared_size=0;
+        check(build_linux_tree(tree,shared,shared_output.data(),shared_output.size(),shared_size,error),"shared-kernel DT clone failed");
+        Fdt shared_tree{};check(Fdt::open({shared_output.data(),shared_size},shared_tree,error),"shared-kernel DT invalid");
+        check(shared_tree.property(text("/reserved-memory/framebuffer"),text("no-map"),p)==no_map,
+              "shared-kernel DT changed framebuffer mapping attributes");
         check(!build_linux_tree(tree,o,output.data()+1,128,bytes,error) && !bytes,"short DT output accepted");
         check(!build_linux_tree(tree,o,input.data(),input.size(),bytes,error) && input==before,"overlapping output accepted");
         auto invalid=o;invalid.initrd_start=0x40000000;

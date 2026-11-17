@@ -20,7 +20,7 @@ def main():
     parser.add_argument('--out',type=Path,default=ROOT/'build-display-bridge/vm-test')
     parser.add_argument('--bad-fdt',action='store_true')
     parser.add_argument('--bad-psci',choices=['unknown','unterminated'])
-    parser.add_argument('--menu-case',choices=['timeout','android','recovery','download','busy','carried','linux-rejected'])
+    parser.add_argument('--menu-case',choices=['timeout','android','recovery','download','busy','carried','linux-rejected','linux-shared'])
     args=parser.parse_args();build=args.build.resolve();out=args.out.resolve();out.mkdir(parents=True,exist_ok=True)
     meta=json.loads((build/'build.json').read_text());image=(build/'Image').read_bytes()
     assert meta['kind'] in ('pre-kernel-display-bridge','pre-kernel-boot-menu') and hashlib.sha256(image).hexdigest()==meta['image_sha256']
@@ -28,6 +28,14 @@ def main():
     if args.menu_case: assert menu_enabled and meta.get('menu_vm_bus_enabled'),'Use the VM-only --boot-menu --menu-test build'
     dtb=bytearray(test_dtb(controls=bool(args.menu_case),
         psci_method={'unknown':b'other\0','unterminated':b'smc'}.get(args.bad_psci,b'smc\0')))
+    shared_case=args.menu_case=='linux-shared'
+    if shared_case:
+        from fdt_fixture import decode,encode,Node
+        root,reservations,boot=decode(dtb)
+        root.children.append(Node('reserved-memory',{'#address-cells':struct.pack('>I',2),
+            '#size-cells':struct.pack('>I',2),'ranges':b''},[
+            Node('framebuffer',{'reg':struct.pack('>QQ',BASE,0xc50000)})]))
+        dtb=bytearray(encode(root,reservations,boot))
     if args.bad_fdt:dtb[0]=0
     (out/'test.dtb').write_bytes(dtb)
     events = {'timeout':[], 'android':[(300,4),(500,0)],
@@ -35,7 +43,7 @@ def main():
         'download':[(300,1),(500,0),(700,4),(900,0)],
         'busy':[], 'carried':[(0,4),(500,0)]}.get(args.menu_case,[])
     if meta.get('linux_payload'):
-        if args.menu_case=='linux-rejected':events=[(300,2),(500,0),(700,4),(900,0)]
+        if args.menu_case in ('linux-rejected','linux-shared'):events=[(300,2),(500,0),(700,4),(900,0)]
         if args.menu_case=='recovery':events=[(300,2),(500,0),(700,2),(900,0),(1100,4),(1300,0)]
     bus=struct.pack('<4I',len(events),int(args.menu_case=='busy'),0,0)
     bus+=b''.join(struct.pack('<II',*event) for event in events)
@@ -136,7 +144,10 @@ _start:
                 ctx=struct.unpack_from('<35Q',actual,context_offset)
                 assert state[0]==(0x4e000000 if selection==0 else 0x4e001000)
                 assert state[2]==selection and state[3]==ctx[8]==0x380 and state[4]==ctx[9]==0x4e100000
-                assert list(state[5:9])==[0x48000000,0x11223344,0x55667788,0x12345678]
+                if shared_case:
+                    assert meta['linux_payload']['shares_android_kernel']
+                    assert list(state[5:9])==[meta['symbols']['linux_dtb_buffer'],0,0,0]
+                else:assert list(state[5:9])==[0x48000000,0x11223344,0x55667788,0x12345678]
                 fmt_start=meta['proc_format_offset'];capacity=meta['proc_format_capacity']
                 fmt=actual[fmt_start:fmt_start+capacity].split(b'\0')[0]
                 (case/'trace.txt').write_bytes(fmt+b'\n')
@@ -161,8 +172,20 @@ _start:
                     elif args.menu_case=='busy':
                         assert ctx[13]==7 and ctx[18]==0 and b'reason=input_unavailable' in fmt
                     else:
-                        assert ctx[13]==9 and ctx[18]==0 and ctx[26]==0
-                        if args.menu_case in ('timeout','carried'):
+                        assert ctx[13]==(10 if shared_case else 9) and ctx[18]==0 and ctx[26]==(1 if shared_case else 0)
+                        if shared_case:
+                            assert b'reason=linux_shared_kernel' in fmt and ctx[31]==1
+                            new_tree=ctx[0]-0x40000000
+                            size=int.from_bytes(actual[new_tree+4:new_tree+8],'big')
+                            prepared=actual[new_tree:new_tree+size]
+                            from fdt_fixture import decode
+                            t,reservations,_=decode(prepared)
+                            assert t.child('chosen').props['linux,initrd-start']==struct.pack('>Q',meta['symbols']['linux_initrd_begin'])
+                            assert 'no-map' not in t.child('reserved-memory').child('framebuffer').props
+                            assert any(a==0x40000000+meta['observer_offset'] for a,n in reservations)
+                            q.command('pmemsave',{'val':0x48000000,'size':len(dtb),'filename':str(case/'unchanged-live.dtb')})
+                            assert (case/'unchanged-live.dtb').read_bytes()==dtb
+                        elif args.menu_case in ('timeout','carried'):
                             assert b'reason=android_timeout' in fmt and ctx[31]==0 and ctx[33]>=8000
                         elif args.menu_case=='android':
                             assert b'reason=android_selected' in fmt and ctx[31]==0 and ctx[33]<8000
@@ -181,7 +204,7 @@ _start:
                             q.command('pmemsave',{'val':0x52000400,'size':20,'filename':str(case/'restored-registers.bin')})
                             assert struct.unpack('<5I',(case/'restored-registers.bin').read_bytes())==(
                                 0x22000017,0xa5a50000,0x66262564,0,0xcafebabe)
-                    if args.menu_case in ('timeout','carried','android','busy','linux-rejected') or args.bad_psci:
+                    if args.menu_case in ('timeout','carried','android','busy','linux-rejected','linux-shared') or args.bad_psci:
                         q.command('pmemsave',{'val':0x52000000,'size':16,'filename':str(case/'reset-record.bin')})
                         assert struct.unpack('<4I',(case/'reset-record.bin').read_bytes())[2:]==(0,0),'Unexpected firmware reset request'
                     q.command('pmemsave',{'val':BASE-16,'size':FRAME*3+32,'filename':str(case/'framebuffer.bin')})

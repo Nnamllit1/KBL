@@ -20,8 +20,10 @@ def build(args):
     fault_test = getattr(args, 'fault_test', False)
     linux_image=getattr(args,'linux_image',None)
     linux_initrd=getattr(args,'linux_initrd',None)
-    if bool(linux_image)!=bool(linux_initrd) or (linux_image and not boot_menu):
-        raise ValueError('Linux requires --boot-menu, --linux-image and --linux-initrd together')
+    linux_shared=getattr(args,'linux_reuse_kernel',False)
+    linux_enabled=bool(linux_image) or linux_shared
+    if (linux_image and linux_shared) or linux_enabled!=bool(linux_initrd) or (linux_enabled and not boot_menu):
+        raise ValueError('Linux requires --boot-menu, --linux-initrd and exactly one kernel choice')
     if menu_test and not boot_menu: raise ValueError('Menu VM bus requires --boot-menu')
     if reset_fault and not (boot_menu and menu_test): raise ValueError('Reset fault injection requires --boot-menu --menu-test')
     if fault_test and not display_bridge: raise ValueError('Fault injection requires --display-bridge')
@@ -54,8 +56,8 @@ def build(args):
     base = 0x40000000
     observer = base + original_span
     linux_metadata=None
-    if linux_image:
-        payload=linux_image.read_bytes();initrd=linux_initrd.read_bytes()
+    if linux_enabled:
+        payload=original if linux_shared else linux_image.read_bytes();initrd=linux_initrd.read_bytes()
         if len(payload)<4096 or payload[56:60]!=b'ARM\x64':raise ValueError('Linux payload must be a raw ARM64 Image')
         offset,memory,flags=struct.unpack_from('<3Q',payload,8)
         if flags&1 or offset>=0x200000 or memory<len(payload) or offset+memory>original_span:
@@ -63,9 +65,10 @@ def build(args):
         if not initrd.startswith((b'070701',b'\x1f\x8b')) or len(initrd)>16*1024*1024:
             raise ValueError('Linux initrd must be a bounded newc or gzip archive')
         linux_metadata={'image_sha256':hashlib.sha256(payload).hexdigest(),'image_file_bytes':len(payload),
+            'shares_android_kernel':linux_shared,
             'image_memory_bytes':memory,'text_offset':offset,'load_address':hex(base+offset),
             'initrd_sha256':hashlib.sha256(initrd).hexdigest(),'initrd_bytes':len(initrd)}
-        release=re.search(rb'Linux version ([^ \x00]{1,100}) ',payload)
+        release=re.search(rb'Linux version (\d+\.\d+\.\d+[^ \x00]{0,90}) ',payload)
         linux_metadata['kernel_release']=release.group(1).decode('ascii') if release else None
     output = args.out.resolve(); output.mkdir(parents=True, exist_ok=True)
     suffix = '.exe' if os.name == 'nt' else ''
@@ -80,7 +83,8 @@ def build(args):
     if boot_menu: common += ['-DKBL_BOOT_MENU=1']
     if menu_test: common += ['-DKBL_MENU_VM_TEST=1']
     if reset_fault: common += ['-DKBL_RESET_FAULT_TEST=1']
-    if linux_image:common += ['-DKBL_LINUX_PAYLOAD=1','-DKBL_LOADER_START='+hex(observer)]
+    if linux_enabled:common += ['-DKBL_LINUX_PAYLOAD=1','-DKBL_LOADER_START='+hex(observer)]
+    if linux_shared:common += ['-DKBL_LINUX_SHARED_KERNEL=1']
     config = ['-DKBL_PROC_FORMAT_ADDRESS='+hex(base+proc_format),
               '-DKBL_PROC_FORMAT_CAPACITY='+str(proc_capacity)]
     run(common + ['-DKBL_BANNER_ADDRESS=' + hex(base + banner),
@@ -93,17 +97,18 @@ def build(args):
         sources = ['platforms/baremetal/display_bridge.cpp','src/core.cpp','src/fdt.cpp','src/menu_view.cpp','src/font.cpp','targets/samsung/gta9wifi/display_probe.cpp']
         if boot_menu:
             sources += ['src/buttons.cpp','targets/samsung/gta9wifi/controls.cpp','platforms/baremetal/boot_menu.cpp']
-        if linux_image:sources += ['src/linux_boot.cpp']
+        if linux_enabled:sources += ['src/linux_boot.cpp']
         for source in sources:
             obj = output/(Path(source).stem+'.o')
             run(common + config + ['-std=c++17','-c',ROOT/source,'-o',obj]); objects.append(obj)
-    if linux_image:
+    if linux_enabled:
         resources=output/'linux_resources.S'
+        image_resource='' if linux_shared else '.incbin "'+linux_image.resolve().as_posix()+'"\n'
         resources.write_text('''.section .rodata.linux_payload,"a"
 .balign 4096
 .global linux_image_begin,linux_image_end,linux_initrd_begin,linux_initrd_end
 linux_image_begin:
-.incbin "'''+linux_image.resolve().as_posix()+'''"
+'''+image_resource+'''
 linux_image_end:
 .balign 4096
 linux_initrd_begin:
@@ -156,7 +161,7 @@ SECTIONS {{
     if unchanged != original or image[banner:banner+14] != b'Linux version ':
         raise ValueError('Original kernel changed outside its entry branch/size')
     (output/'Image').write_bytes(image)
-    manifest = {'product':'KBL', 'version':'0.2.0' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
+    manifest = {'product':'KBL', 'version':'0.3.0' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
         'kind':'pre-kernel-boot-menu' if boot_menu else 'pre-kernel-display-bridge' if display_bridge else 'pre-kernel-entry-control', 'target':'SM-X110-CYE5',
         'qemu_uart_enabled':False, 'link_address':hex(base), 'image_file_bytes':len(image),
         'image_memory_bytes':span, 'image_sha256':hashlib.sha256(image).hexdigest(),
@@ -186,6 +191,7 @@ if __name__ == '__main__':
     parser.add_argument('--display-bridge',action='store_true')
     parser.add_argument('--boot-menu',action='store_true',help='Build the experimental SM-X110 hardware boot menu')
     parser.add_argument('--linux-image',type=Path,help='Optional independent raw ARM64 Linux Image')
+    parser.add_argument('--linux-reuse-kernel',action='store_true',help='Use the matched Android kernel with the Linux initramfs')
     parser.add_argument('--linux-initrd',type=Path,help='Initramfs for the independent Linux entry')
     parser.add_argument('--menu-test',action='store_true',help='VM-only input bus; tablet packaging rejects this build')
     parser.add_argument('--reset-fault-test',action='store_true',help='VM-only exception during reset; requires --boot-menu --menu-test')

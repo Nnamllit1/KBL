@@ -84,10 +84,18 @@ const FirmwareReset firmware{nullptr, system_reset};
 #ifdef KBL_LINUX_PAYLOAD
 bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,const Controls& controls) {
     if(context->sctlr&5) {context->reason="linux_requires_mmu_and_dcache_off";return false;}
+    const char* error=nullptr;
+#ifndef KBL_LINUX_SHARED_KERNEL
     const Bytes image{linux_image_begin,size_t(linux_image_end-linux_image_begin)};
-    LinuxImage plan{};const char* error=nullptr;
+    LinuxImage plan{};
     if(!plan_linux_image(image,0x40000000,KBL_LOADER_START,plan,error)) {context->reason=error;return false;}
-    const char arguments[]="earlycon=kblfb keep_bootcon ignore_loglevel loglevel=7 rdinit=/init maxcpus=1 panic=0"
+#endif
+    const char arguments[]=
+#ifdef KBL_LINUX_SHARED_KERNEL
+        "rdinit=/init ignore_loglevel loglevel=7 panic=0 selinux=0 firmware_class.path=/vendor/firmware"
+#else
+        "earlycon=kblfb keep_bootcon ignore_loglevel loglevel=7 rdinit=/init maxcpus=1 panic=0"
+#endif
 #ifdef KBL_MENU_VM_TEST
         " console=ttyAMA0"
 #endif
@@ -95,6 +103,9 @@ bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,c
     LinuxTree options{text(arguments),uint64_t(linux_initrd_begin),uint64_t(linux_initrd_end-linux_initrd_begin),
         KBL_LOADER_START,uint64_t(__bridge_memory_end)-KBL_LOADER_START,display.address,display.reserved_bytes,
         display.width,display.height,display.stride,display.stored_height,display.buffers};
+#ifdef KBL_LINUX_SHARED_KERNEL
+    options.framebuffer_no_map=false;
+#endif
     size_t tree_bytes=0;
     if(!build_linux_tree(tree,options,linux_dtb_buffer,2*1024*1024,tree_bytes,error)) {context->reason=error;return false;}
     bridge_clean(uint64_t(linux_dtb_buffer),tree_bytes);
@@ -102,8 +113,18 @@ bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,c
     if(!stop_watchdog(controls,io,context->reboot)) {
         restore_reboot(io,context->reboot);context->reason="linux_watchdog_stop_failed";return false;
     }
-    context->stage=10;context->reason="linux_handoff";
+    context->stage=10;
+#ifdef KBL_LINUX_SHARED_KERNEL
+    // The matched Samsung kernel already has the target's driver ABI. Reuse
+    // its tested entry path with a different, independently prepared initramfs.
+    context->args[0]=uint64_t(linux_dtb_buffer);
+    context->args[1]=context->args[2]=context->args[3]=0;
+    context->reason="linux_shared_kernel";
+    return true;
+#else
+    context->reason="linux_handoff";
     bridge_linux_enter(plan.address,uint64_t(image.data),image.size,uint64_t(linux_dtb_buffer));
+#endif
 }
 #endif
 bool wait_tick(uint64_t until) {
@@ -137,7 +158,13 @@ extern "C" void bridge_menu(BridgeContext* context, const kbl::Fdt& tree, const 
 #ifdef KBL_LINUX_PAYLOAD
     config.count=4;
     const Action actions[] = {Action::android,Action::linux,Action::recovery,Action::download};
-    const char* labels[] = {"Android","Linux boot probe","TWRP Recovery (experimental)","Download Mode (experimental)"};
+    const char* labels[] = {"Android",
+#ifdef KBL_LINUX_SHARED_KERNEL
+        "Linux desktop (experimental)",
+#else
+        "Linux boot probe",
+#endif
+        "TWRP Recovery (experimental)","Download Mode (experimental)"};
 #else
     const Action actions[] = {Action::android, Action::recovery, Action::download};
     const char* labels[] = {"Android", "TWRP Recovery", "Download Mode"};
@@ -194,9 +221,9 @@ extern "C" void bridge_menu(BridgeContext* context, const kbl::Fdt& tree, const 
             }
 #ifdef KBL_LINUX_PAYLOAD
             if(config.entries[menu.selected].action==Action::linux) {
-                if(!present("Starting Linux probe...")) return;
-                start_linux(context,tree,display,controls);
-                context->stage=9;return;
+                if(!present("Starting Linux...")) return;
+                if(!start_linux(context,tree,display,controls))context->stage=9;
+                return;
             }
 #endif
             context->stage=8;context->reason="reset_requested";

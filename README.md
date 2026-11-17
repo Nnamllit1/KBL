@@ -10,8 +10,10 @@ offers Android, TWRP Recovery and Download Mode. The two reset entries currently
 return to KBL on the tablet and remain experimental.
 The [Linux probe](docs/linux-probe.md) adds an embedded upstream kernel and its
 own initramfs. Linux boot, framebuffer text, PID 1 and its heartbeat have been
-confirmed on the SM-X110. This is a small diagnostic system; a usable Linux
-desktop is the next milestone. See [desktop bring-up](docs/linux-desktop.md).
+confirmed on the SM-X110. The experimental [Linux desktop](docs/linux-desktop.md)
+uses the matched Samsung kernel with Debian ARM64 userspace, Weston and Firefox.
+Native offscreen browser rendering works; the standalone desktop still needs
+display and input validation.
 
 The UEFI adapter provides a boot menu,
 EFI chainloading, Linux kernel arguments and initrd delivery. It does not require
@@ -24,7 +26,8 @@ a Linux userspace or C++ runtime to run.
 | SM-X110 menu and Android countdown | Confirmed on SM-X110 |
 | Recovery / Download Mode requests | Currently return to KBL on SM-X110 |
 | Independent Linux kernel and initramfs | Boots on SM-X110; framebuffer logs, PID 1 and heartbeat confirmed |
-| Linux desktop, browser, USB peripherals and touchscreen | Bring-up planned; not working in the diagnostic probe |
+| Debian ARM64 browser rendering | Tested natively offscreen on the tablet |
+| Standalone desktop, USB peripherals and touchscreen | Experimental; hardware validation pending |
 | Terminal UI and incremental redraw | Native/VM tested; hardware redraw check pending |
 | Portable menu, configuration and timeout | Implemented |
 | ARM64 UEFI adapter | Tested in QEMU |

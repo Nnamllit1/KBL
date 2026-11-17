@@ -15,9 +15,10 @@ struct LinuxTree {
     uint64_t loader_start = 0, loader_bytes = 0;
     uint64_t framebuffer = 0, framebuffer_bytes = 0;
     uint32_t width = 0, height = 0, stride = 0, stored_height = 0, planes = 0;
+    bool framebuffer_no_map = true;
 };
 // Copy the live DT without modifying it. Replace only Linux-specific chosen
-// properties, add a loader reservation, and mark its existing framebuffer
+// properties, add a loader reservation, and optionally mark its framebuffer
 // reservation no-map. This target requires 64-bit reserved-memory cells.
 bool build_linux_tree(const Fdt& source, const LinuxTree& options,
                       uint8_t* output, size_t capacity, size_t& bytes, const char*& error);

@@ -30,3 +30,8 @@ The optional UEFI VM test uses an Alpine Linux kernel and externally supplied
 EDK II firmware. Their provenance is recorded by the local test tool; their
 binaries are not included here. KBL implements a UEFI ABI subset using the
 published specification and does not bundle a UEFI firmware implementation.
+
+The desktop recipe downloads Debian packages including BusyBox, Weston, Mesa
+and Firefox. Their licenses and copyright files remain in the generated root
+filesystem under `/usr/share/doc/`; the package/version inventory is emitted
+alongside the archive. Distribution images are not committed to KBL.

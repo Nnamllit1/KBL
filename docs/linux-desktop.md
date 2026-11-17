@@ -17,6 +17,12 @@ using the loader's existing address, dimensions, stride and pixel format.
 Upstream `simpledrm` and fbcon can then provide a standard DRM device and continue
 console output without a complete MediaTek panel/GPU driver.
 
+The diagnostic live entry retains `kblfb` with `keep_bootcon` during this
+transition. It mirrors kernel messages to all three inherited display buffers;
+fbcon alone updates the base buffer. This keeps logs visible while the active
+scanout buffer is still being investigated. The early console wraps around the
+screen, so the newest line is not always at the bottom.
+
 The framebuffer reservation remains excluded from general RAM allocation. This
 path depends on firmware leaving display scanout running; it does not establish
 power management, backlight, accelerated rendering or a full panel driver.
@@ -44,6 +50,15 @@ The Linux selection transfers control to the upstream Image. The live initramfs
 contains no vendor kernel modules and does not mount Android filesystems. It
 prints `KBL_UPSTREAM_LIVE_INIT_OK` and enumerates available display/input/USB
 interfaces. Compiling a framework does not establish a working hardware driver.
+
+The live-system VM check also verifies userspace text in every display buffer:
+
+```sh
+python tools/linux_smoke.py --qemu /path/to/qemu-system-aarch64 --build build-live/menu-test --kernel-system-map /build/linux-live/System.map --out live-vm
+```
+
+Build that VM fixture with the same arguments as the tablet stage plus
+`--menu-test`. Tablet packaging rejects VM fixtures.
 
 Flash the generated `LINUX_LIVE` AP in AP only, with other slots empty and
 erase/repartition off. First verify normal Android startup. Then restart and

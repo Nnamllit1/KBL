@@ -94,7 +94,7 @@ bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,c
 #ifdef KBL_LINUX_SHARED_KERNEL
         "rdinit=/init ignore_loglevel loglevel=7 panic=0 selinux=0 firmware_class.path=/vendor/firmware"
 #else
-        "earlycon=kblfb console=tty0 ignore_loglevel loglevel=7 rdinit=/init maxcpus=1 panic=0 clk_ignore_unused pd_ignore_unused"
+        "earlycon=kblfb keep_bootcon console=tty0 ignore_loglevel loglevel=7 rdinit=/init maxcpus=1 panic=0 clk_ignore_unused pd_ignore_unused"
 #endif
 #ifdef KBL_MENU_VM_TEST
         " console=ttyAMA0"

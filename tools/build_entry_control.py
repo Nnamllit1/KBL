@@ -72,6 +72,7 @@ def build(args):
         linux_metadata['kernel_release']=release.group(1).decode('ascii') if release else None
         linux_metadata['upstream_live_profile']=not linux_shared and bool(release and b'-kbl-live' in release.group(1))
         linux_metadata['simple_framebuffer']=not linux_shared
+        linux_metadata['retains_early_console']=not linux_shared
     output = args.out.resolve(); output.mkdir(parents=True, exist_ok=True)
     suffix = '.exe' if os.name == 'nt' else ''
     llvm = llvm_dir(args.llvm_bin)
@@ -164,7 +165,7 @@ SECTIONS {{
     if unchanged != original or image[banner:banner+14] != b'Linux version ':
         raise ValueError('Original kernel changed outside its entry branch/size')
     (output/'Image').write_bytes(image)
-    manifest = {'product':'KBL', 'version':'0.3.1' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
+    manifest = {'product':'KBL', 'version':'0.3.2' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
         'kind':'pre-kernel-boot-menu' if boot_menu else 'pre-kernel-display-bridge' if display_bridge else 'pre-kernel-entry-control', 'target':'SM-X110-CYE5',
         'qemu_uart_enabled':False, 'link_address':hex(base), 'image_file_bytes':len(image),
         'image_memory_bytes':span, 'image_sha256':hashlib.sha256(image).hexdigest(),

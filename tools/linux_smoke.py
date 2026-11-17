@@ -13,15 +13,23 @@ from build_uefi import ROOT,llvm_dir,run
 from fdt_fixture import decode,encode,graft_controls
 from probe_smoke import BASE,FRAME,png
 from vm_smoke import QMP
+from console_pixels import kernel_font,find_console_text
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--qemu',required=True,type=Path);p.add_argument('--build',required=True,type=Path)
     p.add_argument('--out',required=True,type=Path)
+    p.add_argument('--kernel-system-map',type=Path,help='System.map from the tested kernel; verifies late text in all mirrored buffers')
     args=p.parse_args();build=args.build.resolve();out=args.out.resolve();out.mkdir(parents=True,exist_ok=True)
     meta=json.loads((build/'build.json').read_text());image=(build/'Image').read_bytes()
     assert meta['linux_payload'] and meta['menu_vm_bus_enabled'] and hashlib.sha256(image).hexdigest()==meta['image_sha256']
+    mirrored=meta['linux_payload'].get('upstream_live_profile') and meta['linux_payload'].get('retains_early_console')
+    font=None
+    if mirrored:
+        if not args.kernel_system_map:p.error('This live build requires --kernel-system-map for framebuffer text verification')
+        begin=meta['symbols']['linux_image_begin']-0x40000000;end=meta['symbols']['linux_image_end']-0x40000000
+        font=kernel_font(image[begin:end],args.kernel_system_map.read_text())
     llvm=llvm_dir();suffix='.exe' if os.name=='nt' else '';results=[]
     for el in (1,2):
         case=out/f'el{el}';case.mkdir(exist_ok=True)
@@ -105,6 +113,11 @@ _start:
                     assert b'[drm] Initialized simpledrm' in content,'Upstream simpledrm did not initialize'
                     assert b'fb0: simpledrmdrmfb frame buffer device' in content,'Framebuffer console did not bind'
                     assert b'KBL_UPSTREAM_LIVE_ALIVE' in content
+                    if mirrored:
+                        for plane in range(3):
+                            view=planes[plane*FRAME:(plane+1)*FRAME]
+                            assert find_console_text(view,font,'KBL_UPSTREAM_LIVE_ALIVE'),f'Framebuffer {plane} froze before userspace'
+                            png(case/f'screen-plane-{plane}.png',view[:800*1340*4])
                 else:assert planes[:FRAME]==planes[FRAME:2*FRAME]==planes[2*FRAME:]
                 png(case/'screen.png',planes[:800*1340*4])
                 q.command('pmemsave',{'val':0x48000000,'size':len((case/'live.dtb').read_bytes()),'filename':str(case/'unchanged-live.dtb')})
@@ -112,7 +125,8 @@ _start:
                 results.append({'el':el,'real_linux_kernel':True,'independent_initramfs_pid1':True,
                     'original_live_dtb_unchanged':True,'framebuffer_guards_intact':True,
                     'image_sha256':meta['linux_payload']['image_sha256'],'hardware_verified':False,
-                    'upstream_live_profile':bool(meta['linux_payload'].get('upstream_live_profile'))})
+                    'upstream_live_profile':bool(meta['linux_payload'].get('upstream_live_profile')),
+                    'late_console_text_in_all_buffers':bool(mirrored)})
                 print(f'PASS KBL -> real Linux -> independent PID 1, EL{el}',flush=True)
         finally:
             if process and process.poll() is None:

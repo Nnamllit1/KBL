@@ -22,6 +22,10 @@ def build(args):
     linux_initrd=getattr(args,'linux_initrd',None)
     linux_shared=getattr(args,'linux_reuse_kernel',False)
     linux_enabled=bool(linux_image) or linux_shared
+    adapters=getattr(args,'linux_adapter',None) or []
+    menu_config=getattr(args,'menu_config',None)
+    if adapters and not linux_enabled:raise ValueError('External Linux adapters require a Linux payload')
+    if menu_config and not boot_menu:raise ValueError('--menu-config requires --boot-menu')
     if (linux_image and linux_shared) or linux_enabled!=bool(linux_initrd) or (linux_enabled and not boot_menu):
         raise ValueError('Linux requires --boot-menu, --linux-initrd and exactly one kernel choice')
     if menu_test and not boot_menu: raise ValueError('Menu VM bus requires --boot-menu')
@@ -70,9 +74,10 @@ def build(args):
             'initrd_sha256':hashlib.sha256(initrd).hexdigest(),'initrd_bytes':len(initrd)}
         release=re.search(rb'Linux version (\d+\.\d+\.\d+[^ \x00]{0,90}) ',payload)
         linux_metadata['kernel_release']=release.group(1).decode('ascii') if release else None
-        linux_metadata['upstream_live_profile']=not linux_shared and bool(release and b'-kbl-live' in release.group(1))
         linux_metadata['simple_framebuffer']=not linux_shared
-        linux_metadata['retains_early_console']=not linux_shared
+        linux_metadata['external_adapters']=[{'name':p.name,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in adapters]
+        linux_metadata['vm_only_payload']=bool(getattr(args,'linux_vm_only',False))
+        if linux_metadata['vm_only_payload'] and not menu_test:raise ValueError('VM-only Linux payload requires --menu-test')
     output = args.out.resolve(); output.mkdir(parents=True, exist_ok=True)
     suffix = '.exe' if os.name == 'nt' else ''
     llvm = llvm_dir(args.llvm_bin)
@@ -88,7 +93,7 @@ def build(args):
     if reset_fault: common += ['-DKBL_RESET_FAULT_TEST=1']
     if linux_enabled:common += ['-DKBL_LINUX_PAYLOAD=1','-DKBL_LOADER_START='+hex(observer)]
     if linux_shared:common += ['-DKBL_LINUX_SHARED_KERNEL=1']
-    if linux_metadata and linux_metadata['upstream_live_profile']:common += ['-DKBL_LINUX_LIVE=1']
+    if adapters:common += ['-DKBL_LINUX_ADAPTER=1']
     config = ['-DKBL_PROC_FORMAT_ADDRESS='+hex(base+proc_format),
               '-DKBL_PROC_FORMAT_CAPACITY='+str(proc_capacity)]
     run(common + ['-DKBL_BANNER_ADDRESS=' + hex(base + banner),
@@ -100,11 +105,23 @@ def build(args):
     if display_bridge:
         sources = ['platforms/baremetal/display_bridge.cpp','src/core.cpp','src/fdt.cpp','src/menu_view.cpp','src/font.cpp','targets/samsung/gta9wifi/display_probe.cpp']
         if boot_menu:
-            sources += ['src/buttons.cpp','targets/samsung/gta9wifi/controls.cpp','platforms/baremetal/boot_menu.cpp']
+            sources += ['src/buttons.cpp','src/hardware_menu.cpp','targets/samsung/gta9wifi/controls.cpp','platforms/baremetal/boot_menu.cpp']
         if linux_enabled:sources += ['src/linux_boot.cpp']
         for source in sources:
             obj = output/(Path(source).stem+'.o')
             run(common + config + ['-std=c++17','-c',ROOT/source,'-o',obj]); objects.append(obj)
+    for i,source in enumerate(adapters):
+        obj=output/f'linux-adapter-{i}.o'
+        run(common+config+['-std=c++17','-c',source.resolve(),'-o',obj]);objects.append(obj)
+    if boot_menu:
+        configured=menu_config.read_bytes() if menu_config else (ROOT/'examples/hardware.cfg').read_bytes()
+        if not menu_config and linux_enabled:
+            configured=configured.replace(b'entry=recovery',b'entry=linux|Linux|linux|/embedded/Image|console=tty0 rdinit=/init panic=0|/embedded/initramfs\nentry=recovery',1)
+        if not configured or len(configured)>32768 or b'\0' in configured:raise ValueError('Menu configuration must be 1..32768 bytes without NUL')
+        (output/'menu.cfg').write_bytes(configured)
+        resource=output/'menu_config.S'
+        resource.write_text('.section .rodata.kbl_config,"a"\n.global kbl_config_begin,kbl_config_end\nkbl_config_begin:\n.incbin "'+(output/'menu.cfg').as_posix()+'"\nkbl_config_end:\n')
+        run(common+['-c',resource,'-o',output/'menu_config.o']);objects.append(output/'menu_config.o')
     if linux_enabled:
         resources=output/'linux_resources.S'
         image_resource='' if linux_shared else '.incbin "'+linux_image.resolve().as_posix()+'"\n'
@@ -165,7 +182,7 @@ SECTIONS {{
     if unchanged != original or image[banner:banner+14] != b'Linux version ':
         raise ValueError('Original kernel changed outside its entry branch/size')
     (output/'Image').write_bytes(image)
-    manifest = {'product':'KBL', 'version':'0.3.2' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
+    manifest = {'product':'KBL', 'version':'0.3.3' if boot_menu else '0.1.2' if display_bridge else '0.1.1',
         'kind':'pre-kernel-boot-menu' if boot_menu else 'pre-kernel-display-bridge' if display_bridge else 'pre-kernel-entry-control', 'target':'SM-X110-CYE5',
         'qemu_uart_enabled':False, 'link_address':hex(base), 'image_file_bytes':len(image),
         'image_memory_bytes':span, 'image_sha256':hashlib.sha256(image).hexdigest(),
@@ -180,6 +197,8 @@ SECTIONS {{
         'reset_fault_test_enabled':reset_fault, 'menu_vm_bus_enabled':menu_test,
         'menu_enabled':boot_menu, 'symbols':symbols}
     if boot_menu:
+        manifest['menu_config_sha256']=hashlib.sha256(configured).hexdigest()
+        manifest['menu_config_source']='embedded'
         manifest['linux_payload']=linux_metadata
         manifest['screen_font']=json.loads((ROOT/'assets/fonts/jetbrains-mono/baked.json').read_text())
         manifest['reset_interface']='psci-system-reset-smc'
@@ -197,6 +216,9 @@ if __name__ == '__main__':
     parser.add_argument('--linux-image',type=Path,help='Optional independent raw ARM64 Linux Image')
     parser.add_argument('--linux-reuse-kernel',action='store_true',help='Use the matched Android kernel with the Linux initramfs')
     parser.add_argument('--linux-initrd',type=Path,help='Initramfs for the independent Linux entry')
+    parser.add_argument('--menu-config',type=Path,help='Embed a hardware-stage kbl.cfg (the stage has no filesystem driver)')
+    parser.add_argument('--linux-adapter',type=Path,action='append',help='Optional external C++ Linux board adapter source; repeat for dependencies')
+    parser.add_argument('--linux-vm-only',action='store_true',help='Mark a test-only Linux payload; requires --menu-test and cannot be packaged')
     parser.add_argument('--menu-test',action='store_true',help='VM-only input bus; tablet packaging rejects this build')
     parser.add_argument('--reset-fault-test',action='store_true',help='VM-only exception during reset; requires --boot-menu --menu-test')
     parser.add_argument('--fault-test',action='store_true',help='VM-only fault injection; tablet packaging rejects this build')

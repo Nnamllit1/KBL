@@ -20,7 +20,7 @@ An optional embedded Linux entry uses a distinct kernel and initramfs. The
 loader validates its memory span, prepares a separate DT and commits a direct
 ARM64 kernel handoff. The original Android path remains the default. This does
 not supply UEFI services or load files from tablet storage; see
-[the Linux probe](linux-probe.md).
+[external payloads](payloads.md).
 
 The device UEFI stage remains a porting task. The UEFI executable implements
 KBL's menu and payload loading after UEFI services are available.

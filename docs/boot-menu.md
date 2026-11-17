@@ -3,7 +3,7 @@
 KBL 0.2.0 offers Android, optional embedded Linux, TWRP Recovery and Download Mode in a monochrome
 terminal-style menu using antialiased JetBrains Mono. Navigation and Android startup were confirmed on the
 SM-X110. Recovery and Download Mode currently return to KBL on the tablet and
-remain experimental. The [Linux probe](linux-probe.md) is a separate direct
+remain experimental. The [external kernel payload](payloads.md) is a separate direct
 kernel handoff.
 
 Volume Up/Down changes the selection. Press and release Power to start it.

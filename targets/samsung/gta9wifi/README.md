@@ -3,7 +3,7 @@
 This target is in bring-up. The [pre-kernel display bridge](../../../docs/display-bridge.md)
 has displayed a screen and returned to the original Android kernel on the
 SM-X110. Hardware menu navigation and Android startup are also confirmed; the
-independent [Linux probe](../../../docs/linux-probe.md) also boots with framebuffer
+independent [kernel handoff](../../../docs/payloads.md) also boots with framebuffer
 text and a running PID 1. Recovery/Download requests still return to KBL.
 A complete UEFI device port remains to be built.
 

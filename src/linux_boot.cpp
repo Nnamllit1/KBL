@@ -130,6 +130,15 @@ bool build_linux_tree(const Fdt& source,const LinuxTree& o,uint8_t* output,size_
             if(o.simple_framebuffer && equal({path,length},text("/chosen")))
                 for(unsigned i=11;i<14;++i) if(equal(name,text(names[i]))) skip=true;
             if(o.framebuffer_no_map && equal({path,length},find.path.view()) && equal(name,text("no-map"))) skip=true;
+            if(!skip && o.target_property) {
+                Bytes value{source.structure.data+start+12,size};
+                const auto action=o.target_property({path,length},name,value);
+                if(action==LinuxPropertyAction::omit)skip=true;
+                else if(action==LinuxPropertyAction::replace) {
+                    if(value.size>2*1024*1024 || (value.size && !value.data)) {error="invalid target DT property";return false;}
+                    w.property(index,value);skip=true;
+                }
+            }
             if(!skip) w.raw(source.structure.data+start,cursor-start);
         } else w.word(token);
     }

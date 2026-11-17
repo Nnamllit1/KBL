@@ -100,7 +100,7 @@ def package(args):
     kind = build['kind']
     if kind not in ('bare-metal-display-probe', 'pre-kernel-entry-control', 'pre-kernel-display-bridge', 'pre-kernel-boot-menu'):
         raise ValueError('Unknown payload kind')
-    if (build['qemu_uart_enabled'] or sha(image) != build['image_sha256'] or
+    if (build['qemu_uart_enabled'] or (build.get('linux_payload') or {}).get('vm_only_payload') or (build.get('linux_payload') or {}).get('usb_dummy_vm_kernel') or sha(image) != build['image_sha256'] or
             build.get('fault_test_enabled',False) or
             build.get('menu_vm_bus_enabled',False) or
             image[56:60] != b'ARM\x64' or struct.unpack_from('<Q', image, 8)[0] != 0 or
@@ -113,10 +113,8 @@ def package(args):
             raise ValueError('Rebuild the display probe with strict-alignment code generation')
         if len(image) >= 0x80000: raise ValueError('Display probe exceeds its staging window')
     else:
-        version, label = {'pre-kernel-boot-menu':('0.3.2',
-            'LINUX_DESKTOP' if (build.get('linux_payload') or {}).get('shares_android_kernel') else
-            'LINUX_LIVE' if (build.get('linux_payload') or {}).get('upstream_live_profile') else
-            'LINUX_PROBE' if build.get('linux_payload') else 'BOOT_MENU'),
+        version, label = {'pre-kernel-boot-menu':('0.3.3',
+            'LINUX_PAYLOAD' if build.get('linux_payload') else 'BOOT_MENU'),
                           'pre-kernel-display-bridge':('0.1.2','DISPLAY_BRIDGE'),
                           'pre-kernel-entry-control':('0.1.1','ENTRY_CONTROL')}[kind]
         if kind in ('pre-kernel-display-bridge','pre-kernel-boot-menu') and not build.get('strict_alignment'):

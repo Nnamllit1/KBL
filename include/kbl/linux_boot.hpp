@@ -9,6 +9,8 @@ struct LinuxImage {
 // Its full memory span must fit below the still-executing KBL code.
 bool plan_linux_image(Bytes image, uint64_t ram_base, uint64_t loader_start,
                       LinuxImage& out, const char*& error);
+enum class LinuxPropertyAction { keep, replace, omit };
+using LinuxPropertyFilter = LinuxPropertyAction (*)(Text path, Text name, Bytes& value);
 struct LinuxTree {
     Text arguments;
     uint64_t initrd_start = 0, initrd_bytes = 0;
@@ -17,6 +19,7 @@ struct LinuxTree {
     uint32_t width = 0, height = 0, stride = 0, stored_height = 0, planes = 0;
     bool framebuffer_no_map = true;
     bool simple_framebuffer = false;
+    LinuxPropertyFilter target_property = nullptr;
 };
 // Copy the live DT without modifying it. Replace only Linux-specific chosen
 // properties, add a loader reservation, and optionally mark its framebuffer

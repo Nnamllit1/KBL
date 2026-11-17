@@ -1,7 +1,12 @@
 #include "display_bridge.hpp"
 #include "display_probe.hpp"
+#include "kbl/hardware_menu.hpp"
+extern "C" const char kbl_config_begin[],kbl_config_end[];
 #ifdef KBL_LINUX_PAYLOAD
 #include "kbl/linux_boot.hpp"
+#ifdef KBL_LINUX_ADAPTER
+#include "kbl/linux_adapter.hpp"
+#endif
 extern "C" uint8_t linux_image_begin[],linux_image_end[],linux_initrd_begin[],linux_initrd_end[];
 extern "C" uint8_t linux_dtb_buffer[],__bridge_memory_end[];
 #endif
@@ -82,7 +87,7 @@ int64_t system_reset(void*, uint32_t function) {
 const RegisterIO io{nullptr, read_register, write_register};
 const FirmwareReset firmware{nullptr, system_reset};
 #ifdef KBL_LINUX_PAYLOAD
-bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,const Controls& controls) {
+bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,const Controls& controls,const Entry& entry) {
     if(context->sctlr&5) {context->reason="linux_requires_mmu_and_dcache_off";return false;}
     const char* error=nullptr;
 #ifndef KBL_LINUX_SHARED_KERNEL
@@ -90,23 +95,29 @@ bool start_linux(BridgeContext* context,const Fdt& tree,const Display& display,c
     LinuxImage plan{};
     if(!plan_linux_image(image,0x40000000,KBL_LOADER_START,plan,error)) {context->reason=error;return false;}
 #endif
-    const char arguments[]=
-#ifdef KBL_LINUX_SHARED_KERNEL
-        "rdinit=/init ignore_loglevel loglevel=7 panic=0 selinux=0 firmware_class.path=/vendor/firmware"
-#else
-        "earlycon=kblfb keep_bootcon console=tty0 ignore_loglevel loglevel=7 rdinit=/init maxcpus=1 panic=0 clk_ignore_unused pd_ignore_unused"
-#endif
+    String<800> arguments{};
+    if(!arguments.assign(entry.arguments.view())) {context->reason="linux_arguments_too_long";return false;}
 #ifdef KBL_MENU_VM_TEST
-        " console=ttyAMA0"
+    const char vm_console[]=" console=ttyAMA0";
+    for(size_t i=0;i<sizeof(vm_console)-1;++i)arguments.data[arguments.size++]=vm_console[i];
+    arguments.data[arguments.size]=0;
 #endif
-        ;
-    LinuxTree options{text(arguments),uint64_t(linux_initrd_begin),uint64_t(linux_initrd_end-linux_initrd_begin),
+    LinuxTree options{arguments.view(),uint64_t(linux_initrd_begin),uint64_t(linux_initrd_end-linux_initrd_begin),
         KBL_LOADER_START,uint64_t(__bridge_memory_end)-KBL_LOADER_START,display.address,display.reserved_bytes,
         display.width,display.height,display.stride,display.stored_height,display.buffers};
 #ifdef KBL_LINUX_SHARED_KERNEL
     options.framebuffer_no_map=false;
 #else
     options.simple_framebuffer=true;
+#endif
+#ifdef KBL_LINUX_ADAPTER
+    if(!kbl_prepare_linux(tree,options,
+#ifdef KBL_MENU_VM_TEST
+            true,
+#else
+            false,
+#endif
+            error)) {context->reason=error;return false;}
 #endif
     size_t tree_bytes=0;
     if(!build_linux_tree(tree,options,linux_dtb_buffer,2*1024*1024,tree_bytes,error)) {context->reason=error;return false;}
@@ -156,26 +167,14 @@ extern "C" void bridge_menu(BridgeContext* context, const kbl::Fdt& tree, const 
     if (hz < 1000 || hz > 1000000000) { context->reason="invalid_counter_frequency"; return; }
     const auto began = counter();
     Config config{};
-    config.count=3; config.timeout_seconds=8;
+    Error config_error{};
+    if(!parse_hardware_config({kbl_config_begin,size_t(kbl_config_end-kbl_config_begin)},
 #ifdef KBL_LINUX_PAYLOAD
-    config.count=4;
-    const Action actions[] = {Action::android,Action::linux,Action::recovery,Action::download};
-    const char* labels[] = {"Android",
-#ifdef KBL_LINUX_SHARED_KERNEL
-        "Linux desktop (experimental)",
-#elif defined(KBL_LINUX_LIVE)
-        "Linux live system (upstream)",
+            true,
 #else
-        "Linux boot probe",
+            false,
 #endif
-        "TWRP Recovery (experimental)","Download Mode (experimental)"};
-#else
-    const Action actions[] = {Action::android, Action::recovery, Action::download};
-    const char* labels[] = {"Android", "TWRP Recovery", "Download Mode"};
-#endif
-    for (size_t i=0; i<config.count; ++i) {
-        config.entries[i].action=actions[i]; config.entries[i].label.assign(text(labels[i]));
-    }
+            config,config_error)) {context->reason="menu_config_rejected";context->stage=9;return;}
     Menu menu{}; menu.start(config,0);
     Buttons buttons{};
     MenuRenderer renderer{};
@@ -226,7 +225,7 @@ extern "C" void bridge_menu(BridgeContext* context, const kbl::Fdt& tree, const 
 #ifdef KBL_LINUX_PAYLOAD
             if(config.entries[menu.selected].action==Action::linux) {
                 if(!present("Starting Linux...")) return;
-                if(!start_linux(context,tree,display,controls))context->stage=9;
+                if(!start_linux(context,tree,display,controls,config.entries[menu.selected]))context->stage=9;
                 return;
             }
 #endif

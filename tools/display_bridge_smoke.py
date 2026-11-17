@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--bad-fdt',action='store_true')
     parser.add_argument('--bad-psci',choices=['unknown','unterminated'])
     parser.add_argument('--menu-case',choices=['timeout','android','recovery','download','busy','carried','linux-rejected','linux-shared'])
+    parser.add_argument('--expected-default-index',type=int,default=0)
+    parser.add_argument('--expected-timeout-ms',type=int,default=8000)
     args=parser.parse_args();build=args.build.resolve();out=args.out.resolve();out.mkdir(parents=True,exist_ok=True)
     meta=json.loads((build/'build.json').read_text());image=(build/'Image').read_bytes()
     assert meta['kind'] in ('pre-kernel-display-bridge','pre-kernel-boot-menu') and hashlib.sha256(image).hexdigest()==meta['image_sha256']
@@ -186,7 +188,7 @@ _start:
                             q.command('pmemsave',{'val':0x48000000,'size':len(dtb),'filename':str(case/'unchanged-live.dtb')})
                             assert (case/'unchanged-live.dtb').read_bytes()==dtb
                         elif args.menu_case in ('timeout','carried'):
-                            assert b'reason=android_timeout' in fmt and ctx[31]==0 and ctx[33]>=8000
+                            assert b'reason=android_timeout' in fmt and ctx[31]==args.expected_default_index and ctx[33]>=args.expected_timeout_ms
                         elif args.menu_case=='android':
                             assert b'reason=android_selected' in fmt and ctx[31]==0 and ctx[33]<8000
                         elif args.menu_case=='linux-rejected':

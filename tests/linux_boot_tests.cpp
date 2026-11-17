@@ -29,9 +29,10 @@ static std::vector<uint8_t> fixture(bool no_map=false) {
     property(s,n,"linux,initrd-start",be(0x49000000));property(s,n,"atag,kept",{1,2,3,4});word(s,2);
     begin(s,"reserved-memory");property(s,n,"#address-cells",be(2));property(s,n,"#size-cells",be(2));
     property(s,n,"ranges",{});begin(s,"framebuffer");
-    std::vector<uint8_t> reg;wide(reg,0xff32b000);wide(reg,0xcd4000);property(s,n,"reg",reg);
+    std::vector<uint8_t> framebuffer_reg;wide(framebuffer_reg,0xff32b000);wide(framebuffer_reg,0xcd4000);property(s,n,"reg",framebuffer_reg);
     if(no_map) property(s,n,"no-map",{});
-    word(s,2);word(s,2);word(s,2);word(s,9);
+    word(s,2);word(s,2);
+    word(s,2);word(s,9);
     std::vector<uint8_t> result;
     for(auto v:{0xd00dfeedu,uint32_t(56+s.size()+n.size()),56u,uint32_t(56+s.size()),40u,17u,16u,0u,uint32_t(n.size()),uint32_t(s.size())}) word(result,v);
     result.resize(56);result.insert(result.end(),s.begin(),s.end());result.insert(result.end(),n.begin(),n.end());return result;
@@ -47,7 +48,7 @@ int main(int argc,char** argv) {
     image[24]|=1;check(!plan_linux_image({image.data(),image.size()},0x40000000,0x42a50000,planned,error),"big endian kernel accepted");image[24]=10;
     image[10]=8;check(plan_linux_image({image.data(),image.size()},0x40000000,0x42a50000,planned,error) &&
                          planned.address==0x40080000,"text offset ignored");
-    LinuxTree o{text("earlycon=kblfb rdinit=/init"),0x43000000,4096,0x42a50000,0x1000000,
+    LinuxTree o{text("console=tty0 rdinit=/init"),0x43000000,4096,0x42a50000,0x1000000,
                 0xff32b000,0xc50000,800,1340,800,1344,3};
     for(bool no_map:{false,true}) {
         auto input=fixture(no_map),before=input;Fdt tree{};size_t bytes=99;
@@ -94,6 +95,23 @@ int main(int argc,char** argv) {
         check(!build_linux_tree(tree,invalid,output.data()+1,8192,bytes,error),"unreserved initrd accepted");
         invalid=o;invalid.arguments={"bad\0args",8};
         check(!build_linux_tree(tree,invalid,output.data()+1,8192,bytes,error),"embedded command-line NUL accepted");
+        auto adapted=o;
+        adapted.target_property=[](Text path,Text name,Bytes& value) {
+            if(equal(path,text("/chosen")) && equal(name,text("atag,kept"))) {
+                static const uint8_t replacement[]={7,8};value={replacement,2};
+                return LinuxPropertyAction::replace;
+            }
+            return LinuxPropertyAction::keep;
+        };
+        check(build_linux_tree(tree,adapted,shared_output.data(),shared_output.size(),shared_size,error),"external property replacement failed");
+        check(Fdt::open({shared_output.data(),shared_size},shared_tree,error) && shared_tree.property(text("/chosen"),text("atag,kept"),p) && p.size==2 && p.data[0]==7,"external property replacement lost");
+        adapted.target_property=[](Text path,Text name,Bytes&) {
+            return equal(path,text("/chosen")) && equal(name,text("atag,kept")) ? LinuxPropertyAction::omit : LinuxPropertyAction::keep;
+        };
+        check(build_linux_tree(tree,adapted,shared_output.data(),shared_output.size(),shared_size,error),"external property omission failed");
+        check(Fdt::open({shared_output.data(),shared_size},shared_tree,error) && !shared_tree.property(text("/chosen"),text("atag,kept"),p),"external property omission lost");
+        adapted.target_property=[](Text,Text,Bytes& value) {value={nullptr,1};return LinuxPropertyAction::replace;};
+        check(!build_linux_tree(tree,adapted,shared_output.data(),shared_output.size(),shared_size,error) && input==before,"invalid adapter value accepted or source changed");
     }
     if(argc==2) {
         std::ifstream file(argv[1],std::ios::binary);

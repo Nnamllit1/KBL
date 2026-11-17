@@ -1,5 +1,6 @@
 #include "kbl/boot_image.hpp"
 #include "kbl/fdt.hpp"
+#include "kbl/hardware_menu.hpp"
 #include "controls.hpp"
 #include "kbl/font.hpp"
 #include "display_probe.hpp"
@@ -39,13 +40,14 @@ static void json_region(const char* name, kbl::Region r) {
 int main(int argc, char** argv) try {
     if(argc==2 && std::string(argv[1])=="licenses") {std::cout<<kbl::font_license();return 0;}
     if (argc < 3) {
-        std::cerr << "KBL (Kernel Bootloader) 0.3.2\nUsage: kbl inspect BOOT.img\n"
+        std::cerr << "KBL (Kernel Bootloader) 0.3.3\nUsage: kbl inspect BOOT.img\n"
                      "       kbl inspect-json BOOT.img\n"
                      "       kbl check-efi IMAGE.efi\n"
                      "       kbl dtb TREE.dtb\n"
                      "       kbl check-controls TREE.dtb\n"
                      "       kbl extract-dtb TABLE.img OUTPUT.dtb [INDEX]\n"
                      "       kbl menu kbl.cfg\n"
+                     "       kbl check-hardware-config kbl.cfg [--linux-embedded]\n"
                      "       kbl licenses\n";
         return 2;
     }
@@ -148,6 +150,12 @@ int main(int argc, char** argv) try {
     } else if (command == "check-efi") {
         if (!kbl::inspect_efi({data.data(), data.size()}, 0xaa64, error)) throw std::runtime_error(error);
         std::cout << "ARM64 EFI application verified\n";
+    } else if (command == "check-hardware-config") {
+        kbl::Config config{};kbl::Error parse_error{};
+        const bool linux=argc==4 && std::string(argv[3])=="--linux-embedded";
+        if(!kbl::parse_hardware_config({reinterpret_cast<const char*>(data.data()),data.size()},linux,config,parse_error))
+            throw std::runtime_error(parse_error.message);
+        std::cout<<"Hardware menu configuration valid: "<<config.count<<" entries, timeout "<<config.timeout_seconds<<" seconds\n";
     } else if (command == "menu") {
         kbl::Config config{}; kbl::Error parse_error{};
         if (!kbl::parse_config({reinterpret_cast<const char*>(data.data()), data.size()}, config, parse_error)) {

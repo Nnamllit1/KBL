@@ -8,12 +8,10 @@ The SM-X110 stage runs before the original Android kernel. Entry, display and
 return to Android have been confirmed on the tablet. Its terminal-style menu
 offers Android, TWRP Recovery and Download Mode. The two reset entries currently
 return to KBL on the tablet and remain experimental.
-The [Linux probe](docs/linux-probe.md) adds an embedded upstream kernel and its
-own initramfs. Linux boot, framebuffer text, PID 1 and its heartbeat have been
-confirmed on the SM-X110. The [Linux desktop](docs/linux-desktop.md) direction
-uses upstream Linux with small, separate device patches. The live-system profile
-adds BusyBox userspace and an inherited-framebuffer DRM/console path. A usable
-desktop and the remaining tablet drivers are still under development.
+An optional external ARM64 kernel and initramfs can be supplied to the hardware
+stage. That handoff has reached Linux userspace on SM-X110. KBL does not build
+or bundle an operating-system distribution, desktop or Linux device drivers.
+See [external payloads and hardware configuration](docs/payloads.md).
 
 The UEFI adapter provides a boot menu,
 EFI chainloading, Linux kernel arguments and initrd delivery. It does not require
@@ -26,8 +24,6 @@ a Linux userspace or C++ runtime to run.
 | SM-X110 menu and Android countdown | Confirmed on SM-X110 |
 | Recovery / Download Mode requests | Currently return to KBL on SM-X110 |
 | Independent Linux kernel and initramfs | Boots on SM-X110; framebuffer logs, PID 1 and heartbeat confirmed |
-| Upstream live system and simpledrm framebuffer | Native userspace and framebuffer console tested in QEMU; tablet test pending |
-| Standalone desktop, USB peripherals and touchscreen | Under development; hardware support incomplete |
 | Terminal UI and incremental redraw | Native/VM tested; hardware redraw check pending |
 | Portable menu, configuration and timeout | Implemented |
 | ARM64 UEFI adapter | Tested in QEMU |
@@ -112,7 +108,7 @@ do not flash, unlock, repartition or change rollback state. Prepared Android
 payloads still need a device port that preserves the original boot context.
 
 KBL's core, adapters and tools are licensed under [MIT](LICENSE), unless a file
-states otherwise. The Linux early-console driver is GPL-2.0-only. Firmware,
+states otherwise. Firmware,
 kernels and other payloads retain their own licenses. See [third-party notices](THIRD_PARTY.md).
 The embedded [JetBrains Mono font](assets/fonts/jetbrains-mono/README.md) is
 licensed under the SIL Open Font License 1.1.
